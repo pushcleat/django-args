@@ -248,6 +248,12 @@ class WizardView(ViewMixin, wizard_views.WizardView):
         so that we avoid various infinite recursion issues.
         """
         form_list = collections.OrderedDict()
+        if getattr(self, '_check_cond_started', False):
+            # Guard against infinite recursion, in the case a get_form_list is
+            # called in the context of a condition() call.
+            return self.form_list
+        self._check_cond_started = True
+
         self._condition_cache = getattr(self, '_condition_cache', {})
 
         for step, form_class in self.form_list.items():
@@ -277,7 +283,8 @@ class WizardView(ViewMixin, wizard_views.WizardView):
 
             if self._condition_cache[step]:
                 form_list[step] = form_class
-
+        
+        del self._check_cond_started
         return form_list
 
     def get_form(self, step=None, **kwargs):
@@ -287,7 +294,14 @@ class WizardView(ViewMixin, wizard_views.WizardView):
             step = self.steps.current
 
         steps_so_far = self.get_form_list(until=step)
-        args_so_far = self.get_cleaned_data(*steps_so_far) or {}
+        if getattr(self, '_check_get_cleaned_data', False):
+            # Guard against infinite recursion, in the case a get_form_list is
+            # called in the context of a get_cleaned_data() in condition() call.
+            args_so_far = self.get_cleaned_data(*steps_so_far) or {}
+            self._check_get_cleaned_data = True
+            del self._check_get_cleaned_data
+        else:
+            args_so_far = {}
         return djarg.forms.adapt(
             form, self.func, {**self.get_default_args(), **args_so_far}
         )
